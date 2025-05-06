@@ -6,6 +6,71 @@ import numpy as np
 
 from sports.configs.soccer import SoccerPitchConfiguration
 
+def draw_pitch_voronoi_diagram_2(
+    config: SoccerPitchConfiguration,
+    team_1_xy: np.ndarray,
+    team_2_xy: np.ndarray,
+    team_1_color: sv.Color,
+    team_2_color: sv.Color,
+    sigma: float = 50.0,
+    opacity: float = 0.6,
+    padding: int = 50,
+    scale: float = 0.1,
+    pitch: Optional[np.ndarray] = None
+) -> np.ndarray:
+    """
+    Draws a smooth, blended Voronoi-style control map using Gaussian influence zones.
+
+    Args:
+        config (SoccerPitchConfiguration): Soccer pitch configuration.
+        team_1_xy (np.ndarray): Team 1 player positions.
+        team_2_xy (np.ndarray): Team 2 player positions.
+        team_1_color (sv.Color): RGB color for Team 1 influence.
+        team_2_color (sv.Color): RGB color for Team 2 influence.
+        sigma (float): Standard deviation for Gaussian blur in pixel space.
+        opacity (float): Overlay opacity (0.0 to 1.0).
+        padding (int): Padding around pitch.
+        scale (float): Pitch scale.
+        pitch (Optional[np.ndarray]): Existing pitch image to draw on.
+
+    Returns:
+        np.ndarray: Pitch image with blended Voronoi overlay.
+    """
+    if pitch is None:
+        pitch = draw_pitch(config=config, padding=padding, scale=scale)
+
+    height, width, _ = pitch.shape
+
+    influence_team_1 = np.zeros((height, width), dtype=np.float32)
+    influence_team_2 = np.zeros((height, width), dtype=np.float32)
+
+    # Place Gaussian blobs for each player
+    def add_gaussians(influence_map, points):
+        for point in points:
+            x = int(point[0] * scale) + padding
+            y = int(point[1] * scale) + padding
+            if 0 <= x < width and 0 <= y < height:
+                influence_map[y, x] = 1.0
+        return cv2.GaussianBlur(influence_map, (0, 0), sigmaX=sigma, sigmaY=sigma)
+
+    influence_team_1 = add_gaussians(influence_team_1, team_1_xy)
+    influence_team_2 = add_gaussians(influence_team_2, team_2_xy)
+
+    total = influence_team_1 + influence_team_2 + 1e-6
+    team_1_weight = influence_team_1 / total
+    team_2_weight = influence_team_2 / total
+
+    team_1_color_arr = np.array(team_1_color.as_bgr(), dtype=np.float32)
+    team_2_color_arr = np.array(team_2_color.as_bgr(), dtype=np.float32)
+
+    blended = (
+        team_1_weight[..., None] * team_1_color_arr +
+        team_2_weight[..., None] * team_2_color_arr
+    ).astype(np.uint8)
+
+    blended_overlay = cv2.addWeighted(blended, opacity, pitch, 1 - opacity, 0)
+
+    return blended_overlay
 
 def draw_pitch(
     config: SoccerPitchConfiguration,
